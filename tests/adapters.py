@@ -31,8 +31,59 @@ def run_tokenize_prompt_and_output(
             "response_mask": torch.Tensor of shape (batch_size, max(prompt_and_output_lens) - 1):
                 a mask on the response tokens in `labels`.
     """
-    raise NotImplementedError
+    prompt_enc = tokenizer(
+    prompt_strs,
+    add_special_tokens=True,
+    padding=False,
+    truncation=False,
+    )
+    output_enc = tokenizer(
+    output_strs,
+    add_special_tokens=False,
+    padding=False,
+    truncation=False,
+)
+    print (prompt_enc["input_ids"], output_enc["input_ids"])
+    combined_tokens = []
+    for p,o in zip(prompt_enc["input_ids"], output_enc["input_ids"]):
+        combined_token = p + o
+        combined_tokens.append(combined_token)
 
+    batch_size = len(combined_tokens)
+    max_len = max(len(p) for p in combined_tokens)-1
+    print (max_len)
+    padding_token = tokenizer.pad_token_id
+    input_ids = torch.full((batch_size, max_len), padding_token)
+    labels = torch.full((batch_size, max_len), padding_token)
+    response_mask = torch.zeros((batch_size, max_len), dtype=torch.long)
+    print (input_ids.shape, labels.shape, response_mask.shape,[len(p) for p in combined_tokens])
+
+    for i, combined_token in enumerate(combined_tokens):
+        # If len(combined) - 1 < max_len, use full combined (no slice) to maximize token usage
+        # Otherwise, use combined[:-1] (slice) to fit exactly in max_len
+        if len(combined_token) - 1 < max_len:
+            # Use full combined token (no slice) for shorter sequences
+            sliced = torch.tensor(combined_token,)
+            sequence_length = sliced.shape[0]
+            input_ids[i, :sequence_length] = sliced
+            sliced_labels = torch.tensor(combined_token[1:])
+            labels_sequence_length = sliced_labels.shape[0]
+            labels[i, :labels_sequence_length] = sliced_labels
+            prompt_len_in_labels = len(prompt_enc["input_ids"][i]) - 1
+        else:
+            # Use combined[:-1] (slice) for sequences that would exceed max_len
+            sliced = torch.tensor(combined_token[:-1],)
+            sequence_length = sliced.shape[0]
+            input_ids[i, :sequence_length] = sliced
+            sliced_labels = torch.tensor(combined_token[1:])
+            labels_sequence_length = sliced_labels.shape[0]
+            labels[i, :labels_sequence_length] = sliced_labels
+            prompt_len_in_labels = len(prompt_enc["input_ids"][i]) - 1
+        # response_mask should be 1 for response tokens (after prompt) and 0 for prompt tokens
+        response_mask[i, prompt_len_in_labels:labels_sequence_length] = 1
+
+    print (input_ids, labels, response_mask)
+    return {"input_ids": input_ids, "labels": labels, "response_mask": response_mask}
 
 def run_compute_group_normalized_rewards(
     reward_fn: Callable,
