@@ -172,7 +172,14 @@ def run_get_response_log_probs(
                 we have not masked out the token indices corresponding to the prompt
                 or padding; that is done in the train loop.
     """
-    raise NotImplementedError
+    logits = model(input_ids).logits
+    log_probs = logits.log_softmax(dim=-1)
+    log_probs = log_probs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+    if return_token_entropy:
+        token_entropy = run_compute_entropy(logits)
+        return {"log_probs": log_probs, "token_entropy": token_entropy}
+    else:
+        return {"log_probs": log_probs}
 
 
 def run_compute_naive_policy_gradient_loss(
